@@ -924,7 +924,12 @@ value hh_mem(value key) {
     // The data is currently in the process of being written, wait until it
     // actually is ready to be used before returning.
     while (hashtbl[slot].addr == (char*)1) {
+// TODO: Use volatile_pause() from folly
+#if defined(__aarch64__)
+      asm volatile ("wfe");
+#else
       asm volatile("pause" : : : "memory");
+#endif
     }
     return Val_bool(1);
   }

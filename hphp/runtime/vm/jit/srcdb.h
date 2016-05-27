@@ -54,7 +54,7 @@ struct IncomingBranch {
     ADDR,
   };
 
-  using Opaque = CompactTaggedPtr<void>::Opaque;
+  using Opaque = CompactTaggedPtr<void, Tag>::Opaque;
 
   static IncomingBranch jmpFrom(TCA from) {
     return IncomingBranch(Tag::JMP, from);
@@ -69,7 +69,7 @@ struct IncomingBranch {
   Opaque getOpaque() const {
     return m_ptr.getOpaque();
   }
-  explicit IncomingBranch(CompactTaggedPtr<void>::Opaque v) : m_ptr(v) {}
+  explicit IncomingBranch(Opaque v) : m_ptr(v) {}
 
   Tag type()        const { return m_ptr.tag(); }
   TCA toSmash()     const { return TCA(m_ptr.ptr()); }
@@ -88,7 +88,7 @@ private:
   friend struct GrowableVector<IncomingBranch>;
   IncomingBranch() {}
 
-  CompactTaggedPtr<void,Tag> m_ptr;
+  CompactTaggedPtr<void, Tag> m_ptr;
 };
 
 /*

@@ -201,7 +201,11 @@ template<size_t sz>
 struct assert_sizeof_class {
   // If this static_assert fails, the compiler error will have the real value
   // of sizeof_Class in it since it's in this struct's type.
+#if defined(__aarch64__)
+  static_assert(sz == (use_lowptr ? 252 : 312), "Change this only on purpose");
+#else
   static_assert(sz == (use_lowptr ? 252 : 296), "Change this only on purpose");
+#endif
 };
 template struct assert_sizeof_class<sizeof_Class>;
 
