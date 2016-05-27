@@ -61,6 +61,7 @@ private:
   CallDest callDest(const IRInstruction*) const;
   CallDest callDestTV(const IRInstruction*) const;
   CallDest callDestDbl(const IRInstruction*) const;
+  CallDest callDestIndirectTV(void) const;
 
   // Main call helper:
   void cgCallHelper(Vout& v, CallSpec call, const CallDest& dstInfo,

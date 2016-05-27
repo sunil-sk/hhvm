@@ -48,6 +48,8 @@ enum class DestType : uint8_t {
   TV,    // return a TypedValue packed in two registers
   Dbl,   // return scalar double in a single FP register
   SIMD,  // return a TypedValue in one SIMD register
+  IndirectTV, // return a TypedValue in memory allocated by caller.
+              // Caller copied memory location in register as per Arch ABI
 };
 const char* destTypeName(DestType);
 

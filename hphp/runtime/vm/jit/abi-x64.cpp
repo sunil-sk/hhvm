@@ -173,6 +173,10 @@ PhysReg rarg_simd(size_t i) {
   return simd_args[i];
 }
 
+PhysReg rarg_indirect(size_t i) {
+  return rarg(i);
+}
+
 size_t num_arg_regs() {
   return sizeof(gp_args) / sizeof(PhysReg);
 }

@@ -35,6 +35,7 @@ const char* destTypeName(DestType dt) {
     case DestType::TV:   return "TV";
     case DestType::Dbl:  return "Dbl";
     case DestType::SIMD: return "SIMD";
+    case DestType::IndirectTV: return "IndirectTV";
   }
   not_reached();
 }

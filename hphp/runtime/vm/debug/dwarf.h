@@ -29,6 +29,7 @@ namespace HPHP { namespace Debug {
 
 using jit::TCA;
 
+#if !defined(__aarch64__)
 typedef enum {
   RAX,
   RDX,
@@ -48,6 +49,14 @@ typedef enum {
   R15,
   RIP
 } x86_64_regnum_t;
+#else
+typedef enum {
+	RBP=29,
+	RIP=30,
+	RSP=31
+} aarch64_regnum_t;
+
+#endif
 
 const int DWARF_CODE_ALIGN = 1;
 const int DWARF_DATA_ALIGN = 8;

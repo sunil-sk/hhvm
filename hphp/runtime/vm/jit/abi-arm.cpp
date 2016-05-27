@@ -58,18 +58,18 @@ const RegSet kGPReserved =
   vixl::xzr | vixl::sp; // 31 is the encoded register number for zr and sp
 
 const RegSet kSIMDCallerSaved =
-  vixl::d0 | vixl::d1 | vixl::d2 | vixl::d3 |
-  vixl::d4 | vixl::d5 | vixl::d6 | vixl::d7 |
+  vixl::q0 | vixl::q1 | vixl::q2 | vixl::q3 |
+  vixl::q4 | vixl::q5 | vixl::q6 | vixl::q7 |
   // d8-15 are callee-saved
-  vixl::d16 | vixl::d17 | vixl::d18 | vixl::d19 |
-  vixl::d20 | vixl::d21 | vixl::d22 | vixl::d23 |
-  vixl::d24 | vixl::d25 | vixl::d26 | vixl::d27 |
-  vixl::d28 | vixl::d29;
+  vixl::q16 | vixl::q17 | vixl::q18 | vixl::q19 |
+  vixl::q20 | vixl::q21 | vixl::q22 | vixl::q23 |
+  vixl::q24 | vixl::q25 | vixl::q26 | vixl::q27 |
+  vixl::q28 | vixl::q29;
   // we don't use d30 and d31 because BitSet can't represent them
 
 const RegSet kSIMDCalleeSaved =
-  vixl::d8 | vixl::d9 | vixl::d10 | vixl::d11 |
-  vixl::d12 | vixl::d13 | vixl::d14 | vixl::d15;
+  vixl::q8 | vixl::q9 | vixl::q10 | vixl::q11 |
+  vixl::q12 | vixl::q13 | vixl::q14 | vixl::q15;
 
 const RegSet kSIMDUnreserved = kSIMDCallerSaved | kSIMDCalleeSaved;
 const RegSet kSIMDReserved;
@@ -91,7 +91,8 @@ const Abi trace_abi {
   kSIMDUnreserved,
   kSIMDReserved,
   kCalleeSaved,
-  kSF
+  kSF,
+  true
 };
 
 const Abi cross_trace_abi {
@@ -129,7 +130,7 @@ PhysReg rret(size_t i) {
 }
 PhysReg rret_simd(size_t i) {
   assertx(i == 0);
-  return vixl::d0;
+  return vixl::q0;
 }
 
 PhysReg rarg(size_t i) {
@@ -137,7 +138,13 @@ PhysReg rarg(size_t i) {
   return vixl::Register::XRegFromCode(i);
 }
 PhysReg rarg_simd(size_t i) {
-  not_implemented();
+  assertx(i < num_arg_regs_simd());
+  return vixl::FPRegister::DRegFromCode(i);
+}
+
+PhysReg rarg_indirect(size_t i) {
+  assertx(i < num_arg_regs() + 1);
+  return i == 0? vixl::x8 : rarg(i-1);
 }
 
 RegSet arg_regs(size_t n) {

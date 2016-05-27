@@ -20,7 +20,6 @@
 #include "hphp/runtime/vm/jit/abi-regs.h"
 #include "hphp/runtime/vm/jit/phys-reg.h"
 
-#include "hphp/util/asm-x64.h"
 #include "hphp/vixl/a64/assembler-a64.h"
 #include "hphp/vixl/a64/constants-a64.h"
 
@@ -53,9 +52,10 @@ PhysReg rret_simd(size_t i);
 
 PhysReg rarg(size_t i);
 PhysReg rarg_simd(size_t i);
+PhysReg rarg_indirect(size_t i);
 
-constexpr size_t num_arg_regs() { return 7; }
-constexpr size_t num_arg_regs_simd() { return 0; }
+constexpr size_t num_arg_regs() { return 8; }
+constexpr size_t num_arg_regs_simd() { return 8; }
 
 RegSet arg_regs(size_t n);
 RegSet arg_regs_simd(size_t n);
@@ -78,10 +78,6 @@ inline vixl::FPRegister x2simd(PhysReg x64reg) {
 }
 
 inline vixl::Condition convertCC(jit::ConditionCode cc) {
-  if (cc == jit::CC_P || cc == jit::CC_NP) {
-    // ARM has no parity flag
-    always_assert(false);
-  }
   assertx(cc >= 0 && cc <= 0xF);
 
   using namespace vixl;
@@ -96,13 +92,38 @@ inline vixl::Condition convertCC(jit::ConditionCode cc) {
     ne,  // not equal
     ls,  // unsigned lower or same
     hi,  // unsigned higher
-    pl,  // plus (sign set)
-    mi,  // minus (sign clear)
-    nv, nv,  // invalid. These are the parity flags.
+    mi,  // minus (sign set)
+    pl,  // plus (sign clear)
+    vs,  // float:unordered
+    vc,  // float:ordered
     lt,  // signed less than
     ge,  // signed greater or equal
     le,  // signed less or equal
     gt,  // signed greater than
+  };
+
+  return mapping[cc];
+}
+
+inline jit::ConditionCode convertCC(vixl::Condition cc) {
+
+  constexpr jit::ConditionCode mapping[] = {
+    jit::CC_E,
+    jit::CC_NE,
+    jit::CC_None, /* Carry set */
+    jit::CC_None, /* Carry clear */
+    jit::CC_NS,
+    jit::CC_S,
+    jit::CC_O,
+    jit::CC_NO,
+    jit::CC_A,
+    jit::CC_BE,
+    jit::CC_NL,
+    jit::CC_L,
+    jit::CC_G,
+    jit::CC_NG,
+    jit::CC_None, /* Always */
+    jit::CC_None, /* Always */
   };
 
   return mapping[cc];
@@ -118,7 +139,12 @@ inline vixl::Register svcReqArgReg(unsigned index) {
 // vixl MacroAssembler uses ip0/ip1 (x16-17) for macro instructions
 const vixl::Register rAsm(vixl::x9);
 const vixl::Register rLinkReg(vixl::x30);
+const vixl::Register rFp(vixl::x29);
+const vixl::Register rSp(vixl::sp);
 const vixl::Register rHostCallReg(vixl::x16);
+
+inline PhysReg rasm()    { return vixl::x9; }
+inline PhysReg rvixl()   { return vixl::x17;}
 
 ///////////////////////////////////////////////////////////////////////////////
 

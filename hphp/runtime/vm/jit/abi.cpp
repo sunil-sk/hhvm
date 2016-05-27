@@ -40,6 +40,7 @@ PhysReg rret_simd(size_t i) { return ARCH_SWITCH_CALL(rret_simd, i); }
 
 PhysReg rarg(size_t i) { return ARCH_SWITCH_CALL(rarg, i); }
 PhysReg rarg_simd(size_t i) { return ARCH_SWITCH_CALL(rarg_simd, i); }
+PhysReg rarg_indirect(size_t i) { return ARCH_SWITCH_CALL(rarg_indirect, i); }
 
 size_t num_arg_regs() { return ARCH_SWITCH_CALL(num_arg_regs); }
 size_t num_arg_regs_simd() { return ARCH_SWITCH_CALL(num_arg_regs_simd); }

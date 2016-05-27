@@ -28,9 +28,17 @@ enum class x64 : uint8_t {
   R8,  R9,  R10, R11, R12, R13, R14, R15, RIP
 };
 
+enum class arm : uint8_t {
+        RBP=29,
+        RIP=30,
+        RSP=31
+};
+
 constexpr auto FP = static_cast<uint8_t>(
 #if defined(__x86_64__)
   x64::RBP
+#elif defined(__aarch64__)
+  arm::RBP
 #else
   0
 #endif
@@ -39,6 +47,8 @@ constexpr auto FP = static_cast<uint8_t>(
 constexpr auto SP = static_cast<uint8_t>(
 #if defined(__x86_64__)
   x64::RSP
+#elif defined(__aarch64__)
+  arm::RSP
 #else
   0
 #endif
@@ -47,6 +57,8 @@ constexpr auto SP = static_cast<uint8_t>(
 constexpr auto IP = static_cast<uint8_t>(
 #if defined(__x86_64__)
   x64::RIP
+#elif defined(__aarch64__)
+  arm::RIP
 #else
   0
 #endif

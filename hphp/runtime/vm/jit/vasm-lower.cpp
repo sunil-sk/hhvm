@@ -79,7 +79,18 @@ void lower_vcall(Vunit& unit, Inst& inst, Vlabel b, size_t i) {
                     v.makeTuple(std::move(argDests))};
     }
   };
+#if defined(__aarch64__)
+  bool indirectTV = (destType ==  DestType::IndirectTV);
+  auto indirectReg = v.makeReg();
+  if (indirectTV) {
+    doArgs(vargs.args, rarg_indirect);
+    v << copy{rarg_indirect(0), indirectReg};
+  } else {
+    doArgs(vargs.args, rarg);
+  }
+#else
   doArgs(vargs.args, rarg);
+#endif
   doArgs(vargs.simdArgs, rarg_simd);
 
   // Emit the appropriate call instruction sequence.
@@ -162,6 +173,13 @@ void lower_vcall(Vunit& unit, Inst& inst, Vlabel b, size_t i) {
       v << copy{rret_simd(0), dests[0]};
       break;
 
+    case DestType::IndirectTV:
+      assertx(dests.empty());
+#if defined(__aarch64__)
+      if (indirectTV)
+        v << copy{indirectReg, rarg_indirect(0)};
+#endif
+      break;
     case DestType::None:
       assertx(dests.empty());
       break;

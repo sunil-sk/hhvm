@@ -660,6 +660,7 @@ void CodeGenerator::cgCallNative(Vout& v, IRInstruction* inst) {
     case DestType::SSA:
     case DestType::Byte:  return callDest(inst);
     case DestType::Dbl:   return callDestDbl(inst);
+    case DestType::IndirectTV: return kVoidDest;
     }
     not_reached();
   }();
@@ -704,6 +705,10 @@ CallDest CodeGenerator::callDestDbl(const IRInstruction* inst) const {
   if (!inst->numDsts()) return kVoidDest;
   auto loc = dstLoc(inst, 0);
   return { DestType::Dbl, loc.reg(0) };
+}
+
+CallDest CodeGenerator::callDestIndirectTV(void) const {
+  return { DestType::IndirectTV };
 }
 
 /*
@@ -2987,7 +2992,9 @@ void CodeGenerator::cgCallBuiltin(IRInstruction* inst) {
         }
         return callDest(dstReg);
       }
-      return kVoidDest;
+      /* Indirect result, first arg is storage for returned TV */
+      //return kVoidDest;
+      return callDestIndirectTV();
     }
     if (funcReturnType == KindOfDouble) {
       return callDestDbl(inst);

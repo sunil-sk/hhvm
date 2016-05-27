@@ -125,6 +125,7 @@ PhysReg rret_simd(size_t i);
  */
 PhysReg rarg(size_t i);
 PhysReg rarg_simd(size_t i);
+PhysReg rarg_indirect(size_t i);
 
 /*
  * Number of available argument registers.
