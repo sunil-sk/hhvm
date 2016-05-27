@@ -56,6 +56,54 @@ struct TransRelocInfo {
   CGMeta fixups;
 };
 
+void adjustForRelocation(RelocationInfo& rel) {
+  switch (arch()) {
+    case Arch::X64:
+      return x64::adjustForRelocation(rel);
+    case  Arch::ARM:
+      return arm::adjustForRelocation(rel);
+    case Arch::PPC64:
+      not_implemented();
+  }
+  not_reached();
+}
+
+void adjustForRelocation(RelocationInfo& rel, TCA srcStart, TCA srcEnd) {
+  switch (arch()) {
+    case Arch::X64:
+      return x64::adjustForRelocation(rel, srcStart, srcEnd);
+    case  Arch::ARM:
+      return arm::adjustForRelocation(rel, srcStart, srcEnd);
+    case Arch::PPC64:
+      not_implemented();
+  }
+  not_reached();
+}
+
+void adjustCodeForRelocation(RelocationInfo& rel, CGMeta& fixups) {
+  ARCH_SWITCH_CALL(adjustCodeForRelocation, rel, fixups);
+}
+
+void findFixups(TCA start, TCA end, CGMeta& fixups) {
+  ARCH_SWITCH_CALL(findFixups, start, end, fixups);
+}
+
+size_t relocate(RelocationInfo& rel,
+                CodeBlock& destBlock,
+                TCA start, TCA end,
+                CGMeta& fixups,
+                TCA* exitAddr) {
+  switch (arch()) {
+    case Arch::X64:
+      return x64::relocate(rel, destBlock, start, end, fixups, exitAddr);
+    case  Arch::ARM:
+      return arm::relocate(rel, destBlock, start, end, fixups, exitAddr);
+    case Arch::PPC64:
+      not_implemented();
+  }
+  not_reached();
+}
+
 //////////////////////////////////////////////////////////////////////
 
 namespace {
@@ -108,7 +156,7 @@ void postProcess(TransRelocInfo&& tri, void* paramPtr) {
   auto relocMap = param.relocMap;
 
   if (!rel.adjustedAddressAfter(tri.start)) {
-    x64::adjustForRelocation(rel, tri.start, tri.end);
+    adjustForRelocation(rel, tri.start, tri.end);
     auto coldStart = tri.coldStart;
     if (&mcg->code().blockFor(coldStart) == &mcg->code().frozen()) {
       /*
@@ -120,12 +168,12 @@ void postProcess(TransRelocInfo&& tri, void* paramPtr) {
        */
       auto it = deadStubs.lower_bound(tri.coldStart);
       while (it != deadStubs.end() && *it < tri.coldEnd) {
-        x64::adjustForRelocation(rel, coldStart, *it);
+        adjustForRelocation(rel, coldStart, *it);
         coldStart = *it + svcreq::stub_size();
         ++it;
       }
     }
-    x64::adjustForRelocation(rel, coldStart, tri.coldEnd);
+    adjustForRelocation(rel, coldStart, tri.coldEnd);
   }
   auto adjustAfter = [&rel](TCA& addr) {
     if (auto adj = rel.adjustedAddressAfter(addr)) addr = adj;
@@ -230,7 +278,7 @@ void relocateStubs(TransLoc& loc, TCA frozenStart, TCA frozenEnd,
 
     CodeBlock dest;
     dest.init(cache.frozen().frontier(), stubSize, "New Stub");
-    x64::relocate(rel, dest, addr, addr + stubSize, fixups, nullptr);
+    relocate(rel, dest, addr, addr + stubSize, fixups, nullptr);
     cache.frozen().skip(stubSize);
     if (addr != frozenStart) {
       rel.recordRange(frozenStart, addr, frozenStart, addr);
@@ -241,9 +289,9 @@ void relocateStubs(TransLoc& loc, TCA frozenStart, TCA frozenEnd,
     rel.recordRange(frozenStart, frozenEnd, frozenStart, frozenEnd);
   }
 
-  x64::adjustForRelocation(rel);
+  adjustForRelocation(rel);
   x64::adjustMetaDataForRelocation(rel, nullptr, fixups);
-  x64::adjustCodeForRelocation(rel, fixups);
+  adjustCodeForRelocation(rel, fixups);
 }
 
 }
@@ -482,7 +530,7 @@ void relocate(std::vector<TransRelocInfo>& relocs, CodeBlock& dest,
     if (ignoreEntry(reloc.sk)) continue;
     auto start DEBUG_ONLY = dest.frontier();
     try {
-      x64::relocate(rel, dest,
+      relocate(rel, dest,
                     reloc.start, reloc.end, reloc.fixups, nullptr);
     } catch (const DataBlockFull& dbf) {
       break;
@@ -497,7 +545,7 @@ void relocate(std::vector<TransRelocInfo>& relocs, CodeBlock& dest,
   swap_trick(fixups.alignments);
   assert(fixups.empty());
 
-  x64::adjustForRelocation(rel);
+  adjustForRelocation(rel);
 
   for (size_t i = 0; i < num; i++) {
     if (!ignoreEntry(relocs[i].sk)) {
@@ -533,12 +581,12 @@ void relocate(std::vector<TransRelocInfo>& relocs, CodeBlock& dest,
     if (!reloc.sk.valid()) continue;
     auto f = const_cast<Func*>(reloc.sk.func());
 
-    x64::adjustCodeForRelocation(rel, reloc.fixups);
+    adjustCodeForRelocation(rel, reloc.fixups);
     reloc.fixups.clear();
 
     // fixup code references in the corresponding cold block to point
     // to the new code
-    x64::adjustForRelocation(rel, reloc.coldStart, reloc.coldEnd);
+    adjustForRelocation(rel, reloc.coldStart, reloc.coldEnd);
 
     if (visitedFuncs.insert(f).second) {
       if (auto adjusted = rel.adjustedAddressAfter(f->getFuncBody())) {
@@ -580,7 +628,7 @@ void relocate(std::vector<TransRelocInfo>& relocs, CodeBlock& dest,
     always_assert(!rel.adjustedAddressAfter(stub));
     fprintf(newRelocMap, "%" PRIxPTR " 0 %s\n", uintptr_t(stub), "NewStub");
   }
-  x64::adjustCodeForRelocation(rel, fixups);
+  adjustCodeForRelocation(rel, fixups);
 
   unlink(mcg->debugInfo()->getRelocMapName().c_str());
   rename(newRelocMapName.c_str(),
@@ -668,7 +716,7 @@ bool relocateNewTranslation(TransLoc& loc, CodeCache::View cache,
     mainSize += pad;
 
     dest.init(mainStartRel, mainSize, "New Main");
-    asm_count += x64::relocate(rel, dest, mainStart, loc.mainEnd(),
+    asm_count += relocate(rel, dest, mainStart, loc.mainEnd(),
                                fixups, nullptr);
     mainEndRel = dest.frontier();
 
@@ -682,7 +730,7 @@ bool relocateNewTranslation(TransLoc& loc, CodeCache::View cache,
     frozenSize += pad;
 
     dest.init(frozenStartRel + sizeof(uint32_t), frozenSize, "New Frozen");
-    asm_count += x64::relocate(rel, dest, frozenStart, loc.frozenEnd(),
+    asm_count += relocate(rel, dest, frozenStart, loc.frozenEnd(),
                                fixups, nullptr);
     frozenEndRel = dest.frontier();
 
@@ -697,7 +745,7 @@ bool relocateNewTranslation(TransLoc& loc, CodeCache::View cache,
       coldSize += pad;
 
       dest.init(coldStartRel + sizeof(uint32_t), coldSize, "New Cold");
-      asm_count += x64::relocate(rel, dest, coldStart, loc.coldEnd(),
+      asm_count += relocate(rel, dest, coldStart, loc.coldEnd(),
                                  fixups, nullptr);
       coldEndRel = dest.frontier();
 

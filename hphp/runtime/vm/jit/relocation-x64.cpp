@@ -272,7 +272,7 @@ size_t relocateImpl(RelocationInfo& rel,
  */
 void adjustForRelocation(RelocationInfo& rel) {
   for (const auto& range : rel.srcRanges()) {
-    adjustForRelocation(rel, range.first, range.second);
+    x64::adjustForRelocation(rel, range.first, range.second);
   }
 }
 

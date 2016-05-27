@@ -26,6 +26,9 @@
 #include "hphp/runtime/vm/jit/relocation.h"
 #include "hphp/runtime/vm/jit/smashable-instr.h"
 #include "hphp/runtime/vm/jit/srcdb.h"
+#include "hphp/runtime/base/arch.h"
+
+#include "hphp/runtime/vm/jit/vasm-arm.h"
 
 #include "hphp/util/asm-x64.h"
 #include "hphp/util/trace.h"
@@ -83,6 +86,45 @@ void clearProfCaller(TCA toSmash, const Func* func, int numArgs,
   rec->removeMainCaller(toSmash);
 }
 
+bool isInstrBranch(TCA addr, size_t& size) {
+  switch (arch()) {
+    case Arch::X64:
+    {
+       x64::DecodedInstruction di(addr);
+       size = di.size();
+       return di.isBranch();
+    }
+    case Arch::ARM:
+    {
+      // Right now all label related branches are smashable.
+      //  May need to add the logic if it not the case 
+      return arm::isInstrSmashableBranch(addr, size);
+    }
+    case Arch::PPC64:
+      not_implemented();
+  }
+  not_reached();
+}
+
+bool isInstrCall(TCA addr, size_t& size) {
+  switch (arch()) {
+    case Arch::X64:
+    {
+       x64::DecodedInstruction di(addr);
+       size = di.size();
+       return di.isCall();
+    }
+    case Arch::ARM:
+    {
+       return arm::isInstrSmashableCall(addr, size);
+    }
+    case Arch::PPC64:
+      not_implemented();
+  }
+  not_reached();
+}
+
+
 /*
  * Clear bound branch and call data associated with range [start, end) in the
  * TC. Also sets all catch-traces to null to ensure that they are reset as
@@ -92,21 +134,24 @@ void clearProfCaller(TCA toSmash, const Func* func, int numArgs,
 void clearTCMaps(TCA start, TCA end) {
   auto& catchMap = mcg->catchTraceMap();
   auto& jmpMap = mcg->jmpToTransIDMap();
+  size_t size, inc;
+
   while (start < end) {
-    x64::DecodedInstruction di (start);
-    if (di.isBranch()) {
+    inc = 0;
+    if(isInstrBranch(start, size)) {
       auto it = jmpMap.find(start);
       if (it != jmpMap.end()) {
         ITRACE(1, "Erasing JMP @ {}\n", start);
         jmpMap.erase(it);
       }
+      inc = size;
     }
     if (auto* ct = catchMap.find(start)) {
       // We mark nothrow with a nullptr, which will assert during unwinding,
       // use a separate marker here to indicate the catch has been erased
       *ct = kInvalidCatchTrace;
     }
-    if (di.isCall()) {
+    if (isInstrCall(start, size)) {
       auto it = s_smashedCalls.find(start);
       if (it != s_smashedCalls.end()) {
         auto func = it->second;
@@ -120,8 +165,9 @@ void clearTCMaps(TCA start, TCA end) {
         s_funcTCData[func].callers.erase(dataIt);
         s_smashedCalls.erase(it);
       }
+      inc = size;
     }
-    start += di.size();
+    start += (inc ? inc : size);
   }
 }
 

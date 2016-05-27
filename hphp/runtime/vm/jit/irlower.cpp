@@ -124,10 +124,10 @@ void relocateCode(const IRUnit& unit, size_t hhir_count,
   RelocationInfo rel;
   size_t asm_count{0};
 
-  asm_count += x64::relocate(rel, main_in,
+  asm_count += relocate(rel, main_in,
                              main.base(), main.frontier(),
                              meta, nullptr);
-  asm_count += x64::relocate(rel, cold_in,
+  asm_count += relocate(rel, cold_in,
                              cold.base(), cold.frontier(),
                              meta, nullptr);
 
@@ -137,9 +137,9 @@ void relocateCode(const IRUnit& unit, size_t hhir_count,
     rel.recordRange(frozen_start, frozen.frontier(),
                     frozen_start, frozen.frontier());
   }
-  x64::adjustForRelocation(rel);
+  adjustForRelocation(rel);
   x64::adjustMetaDataForRelocation(rel, ai, meta);
-  x64::adjustCodeForRelocation(rel, meta);
+  adjustCodeForRelocation(rel, meta);
 
   if (ai) {
     static int64_t mainDeltaTotal = 0, coldDeltaTotal = 0;

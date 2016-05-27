@@ -125,6 +125,16 @@ bool relocateNewTranslation(TransLoc& loc, CodeCache::View cache,
                             CGMeta& fixups,
                             TCA* adjust = nullptr);
 
+void adjustForRelocation(RelocationInfo&);
+void adjustForRelocation(RelocationInfo& rel, TCA srcStart, TCA srcEnd);
+void adjustCodeForRelocation(RelocationInfo& rel, CGMeta& fixups);
+void findFixups(TCA start, TCA end, CGMeta& fixups);
+size_t relocate(RelocationInfo& rel,
+                CodeBlock& destBlock,
+                TCA start, TCA end,
+                CGMeta& fixups,
+                TCA* exitAddr);
+
 //////////////////////////////////////////////////////////////////////
 
 /*
@@ -144,6 +154,18 @@ size_t relocate(RelocationInfo& rel,
                 CGMeta& fixups,
                 TCA* exitAddr);
 
+}
+
+namespace arm {
+void adjustForRelocation(RelocationInfo&);
+void adjustForRelocation(RelocationInfo& rel, TCA srcStart, TCA srcEnd);
+void adjustCodeForRelocation(RelocationInfo& rel, CGMeta& fixups);
+void findFixups(TCA start, TCA end, CGMeta& fixups);
+size_t relocate(RelocationInfo& rel,
+                CodeBlock& destBlock,
+                TCA start, TCA end,
+                CGMeta& fixups,
+                TCA* exitAddr);
 }
 
 //////////////////////////////////////////////////////////////////////
