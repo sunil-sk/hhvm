@@ -228,6 +228,26 @@ private:
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+/*
+* Check whether the jmp is a conditional branch
+* */
+bool isBranchJcc(TCA addr) {
+  switch (arch()) {
+    case Arch::X64:
+    {
+      x64::DecodedInstruction di(addr);
+      return (di.isBranch() && !di.isJmp());
+	  }
+    case Arch::ARM:
+	  {
+      vixl::Instruction *instr = vixl::Instruction::Cast(addr);
+		  return instr->IsCondBranchImm();
+	  }
+    case Arch::PPC64:
+      not_implemented();
+  }
+  not_reached();
+}
 
 bool shouldPGOFunc(const Func& func) {
   if (!RuntimeOption::EvalJitPGO) return false;
@@ -1031,6 +1051,7 @@ MCGenerator::bindJmp(TCA toSmash, SrcKey destSk, ServiceRequest req,
  *              nop5
  * offNotTaken:
  */
+#if !defined(__aarch64__)
 TCA
 MCGenerator::bindJccFirst(TCA jccAddr, SrcKey skTaken, SrcKey skNotTaken,
                           bool taken, bool& smashed) {
@@ -1106,6 +1127,98 @@ MCGenerator::bindJccFirst(TCA jccAddr, SrcKey skTaken, SrcKey skNotTaken,
   TRACE(5, "bindJccFirst: overwrote with cc%02x taken %d\n", cc, taken);
   return tDest;
 }
+#else
+TCA
+MCGenerator::bindJccFirst(TCA jccAddr, SrcKey skTaken, SrcKey skNotTaken,
+                          bool taken, bool& smashed) {
+  LeaseHolder writer(Translator::WriteLease());
+  if (!writer) return nullptr;
+
+  auto const skWillExplore = taken ? skTaken : skNotTaken;
+  auto const skWillDefer = taken ? skNotTaken : skTaken;
+  auto const dest = skWillExplore;
+  auto cc = smashableJccCond(jccAddr);
+
+  TRACE(3, "bindJccFirst: explored %d, will defer %d; "
+           "overwriting cc%02x taken %d\n",
+        skWillExplore.offset(), skWillDefer.offset(), cc, taken);
+  always_assert(skTaken.resumed() == skNotTaken.resumed());
+
+  // We want the branch to point to whichever side has not been explored yet.
+  if (taken) cc = ccNegate(cc);
+
+  auto& cb = m_code.blockFor(jccAddr);
+
+  // It's not clear where the IncomingBranch should go to if cb is frozen.
+  assertx(&cb != &m_code.frozen());
+
+  auto const jmpAddr = jccAddr + smashableJccLen();
+  auto const afterAddr = jmpAddr + smashableJmpLen();
+
+  // Can we just directly fall through?
+  bool const fallThru = afterAddr == cb.frontier() &&
+                        !m_tx.getSrcDB().find(dest);
+
+  auto const tDest = getTranslation(TranslArgs{dest, !fallThru});
+  if (!tDest) return nullptr;
+
+  auto const jmpTarget = smashableJmpTarget(jmpAddr);
+  if (jmpTarget != smashableJccTarget(jccAddr)) {
+    // Someone else already smashed this one.  Ideally we would just re-execute
+    // from jccAddr---except the status flags will have been trashed.
+    return tDest;
+  }
+
+  CGMeta fixups;
+
+  auto jAddr  = taken ? jmpAddr:jccAddr;
+  auto stub = svcreq::emit_bindjmp_stub(
+    m_code.view().frozen(),
+    fixups,
+	  liveSpOff(),
+	  jAddr,
+	  skWillDefer,
+	  TransFlags{}
+	);
+
+  fixups.process(nullptr);
+  smashed = true;
+  assertx(Translator::WriteLease().amOwner());
+
+  /*
+   *     Do not try to straighten the branches
+   *
+   *     toSmash:    jcc   <jmpccFirstStub>
+   *     toSmash+20: jmp   <jmpccFirstStub>
+   *     toSmash+36: <probably the new translation == tDest>
+   *
+   * to:
+   *        Taken Case:
+   *
+   *     toSmash:    jcc <tDest>
+   *     toSmash+20: jmp <jmpccSecondStub>
+   *     toSmash+36: newHotness (tDest)
+   *
+   *        Not taken Case:
+   *
+   *     toSmash:    jcc <jmpccSecondStub>
+   *     toSmash+20: jmp <tDest>
+   *     toSmash+36: newHotness (tDest)
+   *
+   */
+  if (taken) {
+    smashJmp(jmpAddr, stub);
+    m_tx.getSrcRec(dest)->chainFrom(IncomingBranch::jccFrom(jccAddr));
+  }
+  else {
+    smashJcc(jccAddr, stub);
+    m_tx.getSrcRec(dest)->chainFrom(IncomingBranch::jmpFrom(jmpAddr));
+  }
+
+  TRACE(5, "bindJccFirst: overwrote with cc%02x taken %d\n", cc, taken);
+  return tDest;
+}
+#endif // __arch64__
 
 namespace {
 

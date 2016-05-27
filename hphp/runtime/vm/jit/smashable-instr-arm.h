@@ -20,8 +20,9 @@
 #include "hphp/runtime/vm/jit/types.h"
 #include "hphp/runtime/vm/jit/phys-reg.h"
 
-#include "hphp/util/asm-x64.h"
 #include "hphp/util/data-block.h"
+
+#define BRK_INSTR(code) (0xd4200000 | (code << 5))
 
 namespace HPHP { namespace jit {
 
@@ -37,13 +38,19 @@ namespace arm {
 
 /*
  * Number of instructions (each of which is four bytes) in the sequence, plus
- * the size of the smashable immediate.
+ * the size of the smashable immediate and identifier.
  */
-constexpr size_t smashableMovqLen() { return 2 * 4 + 8; }
+constexpr uint64_t smashIdentifier(uint32_t id) {
+  return ((((uint64_t)BRK_INSTR(4)) << 32) | ((uint64_t)BRK_INSTR(id)));
+}
+constexpr size_t smashableMovqLen() { return 2 * 4 + 8 + 8; }
 constexpr size_t smashableCmpqLen() { return 0; }
-constexpr size_t smashableCallLen() { return 3 * 4 + 8; }
-constexpr size_t smashableJmpLen()  { return 2 * 4 + 8; }
-constexpr size_t smashableJccLen()  { return 3 * 4 + 8; }
+// Call length is from the frontier
+constexpr size_t smashableCallLen() { return 3*4; }
+// LR offset is from the end of the smashed instruction to the return location
+constexpr size_t smashableCallLrOff() { return 2 * 4 + 8 + 8; }
+constexpr size_t smashableJmpLen()  { return 2 * 4 + 8 + 8; }
+constexpr size_t smashableJccLen()  { return 3 * 4 + 8 + 8; }
 
 TCA emitSmashableMovq(CodeBlock& cb, CGMeta& fixups, uint64_t imm,
                       PhysReg d);

@@ -239,15 +239,18 @@ struct ImmFolder {
     if (!valid.test(r)) return false;
     auto imm64 = vals[r];
     if (!vixl::Assembler::IsImmArithmetic(imm64)) return false;
-    out = safe_cast<int32_t>(imm64);
+    out = imm64;
+    if((int64_t)out != imm64)
+      return false;
     return true;
   }
   bool logical_imm(Vreg r, int32_t& out) {
     if (!valid.test(r)) return false;
     auto imm64 = vals[r];
     if (!vixl::Assembler::IsImmLogical(imm64, vixl::kXRegSize)) return false;
-    if (!deltaFits(imm64, sz::word)) return false;
-    out = safe_cast<int32_t>(imm64);
+    out = imm64;
+    if((int64_t)out != imm64)
+      return false;
     return true;
   }
   bool zero_imm(Vreg r) {

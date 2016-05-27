@@ -23,6 +23,8 @@
 #include "hphp/runtime/vm/jit/vasm-reg.h"
 
 #include "hphp/util/asm-x64.h"
+#include "hphp/runtime/vm/jit/abi-arm.h"
+
 
 #include <utility>
 
@@ -87,6 +89,7 @@ void implCmpEqDbl(IRLS& env, const IRInstruction* inst, ComparisonPred pred) {
   v << andbi{1, tmp, d, v.makeReg()};
 }
 
+#if !defined(__aarch64__)
 void implCmpRelDbl(IRLS& env, const IRInstruction* inst,
                  ConditionCode cc, bool invert) {
   auto s0 = srcLoc(env, inst, 0).reg();
@@ -99,6 +102,33 @@ void implCmpRelDbl(IRLS& env, const IRInstruction* inst,
   v << ucomisd{s0, s1, sf};
   v << setcc{cc, sf, d};
 }
+#else
+void implCmpRelDbl(IRLS& env, const IRInstruction* inst,
+                 ConditionCode cc) {
+  auto s0 = srcLoc(env, inst, 0).reg();
+  auto s1 = srcLoc(env, inst, 1).reg();
+  auto const d = dstLoc(env, inst, 0).reg();
+  auto& v = vmain(env);
+  auto const sf = v.makeReg();
+
+  v << ucomisd{s0, s1, sf};
+  //Map to ARM condition codes.
+  switch(cc){
+  case CC_A:
+    cc = CC_G;
+    break;
+  case CC_AE:
+    cc = CC_GE;
+    break;
+  case CC_B:
+  case CC_BE:
+    break;
+  default:
+    assert(false);
+  }
+  v << setcc{cc, sf, d};
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -190,16 +220,28 @@ void cgNeqDbl(IRLS& env, const IRInstruction* inst) {
  * NB: This is clearly an x64-ism, and likely needs to be done differently for
  * other architectures.
  */
+#if !defined(__aarch64__)
 #define CMP_DBL_OPS         \
   CDO(Gt,   CC_A,   false)  \
   CDO(Gte,  CC_AE,  false)  \
   CDO(Lt,   CC_A,   true)   \
   CDO(Lte,  CC_AE,  true)
-
 #define CDO(Inst, cc, invert) \
   void cg##Inst##Dbl(IRLS& env, const IRInstruction* inst) {  \
-    implCmpRelDbl(env, inst, cc, invert);                     \
+    implCmpRelDbl(env, inst, cc, invert);  \
   }
+#else
+#define CMP_DBL_OPS \
+  CDO(Gt,   CC_A)   \
+  CDO(Gte,  CC_AE)  \
+  CDO(Lt,   CC_B)   \
+  CDO(Lte,  CC_BE)
+#define CDO(Inst, cc) \
+  void cg##Inst##Dbl(IRLS& env, const IRInstruction* inst) {  \
+    implCmpRelDbl(env, inst, cc);  \
+  }
+#endif
+
 CMP_DBL_OPS
 #undef CDO
 

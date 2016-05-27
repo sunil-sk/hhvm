@@ -33,6 +33,7 @@
 #include "hphp/util/asm-x64.h"
 #include "hphp/util/data-block.h"
 #include "hphp/util/immed.h"
+#include "hphp/runtime/vm/jit/vasm-arm.h"
 
 namespace HPHP { namespace jit {
 ///////////////////////////////////////////////////////////////////////////////
@@ -272,6 +273,8 @@ struct Vunit;
   O(cbcc, I(cc), U(s), Dn)\
   O(hostcall, I(argc), U(args), Dn)\
   O(tbcc, I(cc) I(bit), U(s), Dn)\
+  O(fabs, Inone, UH(s,d), DH(d,s))\
+  VASM_AARCH64_LOWERING_OPCODES \
   /* ppc64 instructions */\
   O(extsb, Inone, UH(s,d), DH(d,s) D(sf))\
   O(extsw, Inone, UH(s,d), DH(d,s) D(sf))\
@@ -839,6 +842,9 @@ struct divint { Vreg s0, s1, d; };
 struct nop {};
 struct ud2 {};
 
+///////////////////////////////////////////////////////////////////////////////
+// x64.
+
 /*
  * Arithmetic instructions.
  */
@@ -885,7 +891,7 @@ struct orwim { Immed s0; Vptr m; VregSF sf; };
 struct orq { Vreg64 s0, s1, d; VregSF sf; };
 struct orqi { Immed s0; Vreg64 s1, d; VregSF sf; };
 struct orqim { Immed s0; Vptr m; VregSF sf; };
-// shift: s1 << s0 => d, sf
+// shift: s1  s0 => d, sf
 struct sar { Vreg64 s0, s1, d; VregSF sf; };
 struct shl { Vreg64 s0, s1, d; VregSF sf; };
 struct sarqi { Immed s0; Vreg64 s1, d; VregSF sf; };
@@ -1050,6 +1056,8 @@ struct shlq { Vreg64 s, d; VregSF sf; }; // uses rcx
 struct brk { uint16_t code; };
 struct cbcc { vixl::Condition cc; Vreg64 s; Vlabel targets[2]; };
 struct tbcc { vixl::Condition cc; unsigned bit; Vreg64 s; Vlabel targets[2]; };
+struct fabs { VregDbl s; VregDbl d; };
+VASM_AARCH64_LOWERING_INSTRS
 // ARM emulator native call intrinsic.
 struct hostcall { RegSet args; uint8_t argc; };
 

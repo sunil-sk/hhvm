@@ -78,6 +78,7 @@ bool effectful(Vinstr& inst) {
     case Vinstr::extsw:
     case Vinstr::fcmpo:
     case Vinstr::fcmpu:
+    case Vinstr::fabs:
     case Vinstr::imul:
     case Vinstr::incl:
     case Vinstr::incq:
@@ -161,7 +162,9 @@ bool effectful(Vinstr& inst) {
     case Vinstr::xscvsxddp:
     case Vinstr::xxlxor:
     case Vinstr::xxpermdi:
-      return false;
+    /* Added for arm lowering */
+	VASM_AARCH64_LOWERING_INSTRS_EFFECT_FALSE
+    return false;
 
     case Vinstr::addlm:
     case Vinstr::addlim:
@@ -247,6 +250,8 @@ bool effectful(Vinstr& inst) {
     case Vinstr::vcall:
     case Vinstr::vcallarray:
     case Vinstr::vinvoke:
+    /* Added for arm lowering */
+	VASM_AARCH64_LOWERING_INSTRS_EFFECT_TRUE
       return true;
   }
   always_assert(false);

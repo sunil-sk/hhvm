@@ -20,11 +20,11 @@
 #include "hphp/runtime/vm/jit/alignment.h"
 #include "hphp/runtime/vm/jit/align-arm.h"
 
-#include "hphp/util/asm-x64.h"
-#include "hphp/util/data-block.h"
-
 #include "hphp/vixl/a64/constants-a64.h"
 #include "hphp/vixl/a64/macro-assembler-a64.h"
+#include "hphp/runtime/base/runtime-error.h"
+#include "hphp/runtime/vm/jit/vasm-arm.h"
+
 
 namespace HPHP { namespace jit { namespace arm {
 
@@ -46,6 +46,7 @@ TCA emitSmashableMovq(CodeBlock& cb, CGMeta& fixups, uint64_t imm,
   vixl::MacroAssembler a { cb };
   vixl::Label imm_data;
   vixl::Label after_data;
+  uint64_t id = smashIdentifier((uint32_t)Alignment::SmashMovq);
 
   auto const start = cb.frontier();
 
@@ -54,6 +55,7 @@ TCA emitSmashableMovq(CodeBlock& cb, CGMeta& fixups, uint64_t imm,
   assertx(cb.isFrontierAligned(8));
 
   // Emit the immediate into the instruction stream.
+  a.    dc64 (id);
   a.    bind (&imm_data);
   a.    dc64 (imm);
   a.    bind (&after_data);
@@ -72,16 +74,25 @@ TCA emitSmashableCall(CodeBlock& cb, CGMeta& fixups, TCA target) {
   vixl::MacroAssembler a { cb };
   vixl::Label after_data;
   vixl::Label target_data;
+  uint64_t id = smashIdentifier((uint32_t)Alignment::SmashCall);
 
   auto const start = cb.frontier();
 
+  //  TODO:     Stack is assumed to be 16 byte aligned! If this
+  //            is not true, need to align stack here and perhaps
+  //            save alignment size on stack too.
+  a.    Stp  (vixl::xzr, rLinkReg,
+              vixl::MemOperand(rSp, -VASM_ARM_CALL_SP_OFF, vixl::PreIndex));
   a.    Ldr  (rAsm, &target_data);
   a.    Blr  (rAsm);
   // When the call returns, jump over the data.
+  a.    Ldp  (vixl::xzr, rLinkReg,
+              vixl::MemOperand(rSp, VASM_ARM_CALL_SP_OFF, vixl::PostIndex));
   a.    B    (&after_data);
   assertx(cb.isFrontierAligned(8));
 
   // Emit the call target into the instruction stream.
+  a.    dc64 (id);
   a.    bind (&target_data);
   a.    dc64 (reinterpret_cast<int64_t>(target));
   a.    bind (&after_data);
@@ -94,6 +105,7 @@ TCA emitSmashableJmp(CodeBlock& cb, CGMeta& fixups, TCA target) {
 
   vixl::MacroAssembler a { cb };
   vixl::Label target_data;
+  uint64_t id = smashIdentifier((uint32_t)Alignment::SmashJmp);
 
   auto const start = cb.frontier();
 
@@ -102,6 +114,7 @@ TCA emitSmashableJmp(CodeBlock& cb, CGMeta& fixups, TCA target) {
   assertx(cb.isFrontierAligned(8));
 
   // Emit the jmp target into the instruction stream.
+  a.    dc64 (id);
   a.    bind (&target_data);
   a.    dc64 (reinterpret_cast<int64_t>(target));
 
@@ -114,11 +127,22 @@ TCA emitSmashableJcc(CodeBlock& cb, CGMeta& fixups, TCA target,
 
   vixl::MacroAssembler a { cb };
   vixl::Label after_data;
+  vixl::Label target_data;
+  uint64_t id = smashIdentifier((uint32_t)Alignment::SmashJcc);
 
   auto const start = cb.frontier();
 
   a.    B    (&after_data, InvertCondition(arm::convertCC(cc)));
-  emitSmashableJmp(cb, fixups, target);
+  //emitSmashableJmp(cb, target);
+  a.    Ldr  (rAsm, &target_data);
+  a.    Br   (rAsm);
+  assertx(cb.isFrontierAligned(8));
+
+  // Emit the jmp target into the instruction stream.
+  a.    dc64 (id);
+  a.    bind (&target_data);
+  a.    dc64 (reinterpret_cast<int64_t>(target));
+
   a.    bind (&after_data);
 
   return start;
@@ -148,7 +172,7 @@ void smashCmpq(TCA inst, uint32_t target) {
 }
 
 void smashCall(TCA inst, TCA target) {
-  smashInstr(inst, target, smashableCallLen());
+  smashInstr(inst, target, smashableCallLen() + 24);
 }
 
 void smashJmp(TCA inst, TCA target) {
@@ -172,13 +196,16 @@ uint32_t smashableCmpqImm(TCA inst) {
 
 TCA smashableCallTarget(TCA call) {
   using namespace vixl;
-  Instruction* ldr = Instruction::Cast(call);
+  //  TODO: Check that called in instr is Str
+
+  Instruction* ldr = Instruction::Cast(call + 4);
   if (ldr->Bits(31, 24) != 0x58) return nullptr;
 
-  Instruction* blr = Instruction::Cast(call + 4);
+  Instruction* blr = Instruction::Cast(call + 8);
   if (blr->Bits(31, 10) != 0x358FC0 || blr->Bits(4, 0) != 0) return nullptr;
 
-  uintptr_t dest = reinterpret_cast<uintptr_t>(blr + 8);
+  uintptr_t dest = reinterpret_cast<uintptr_t>(call + smashableCallLen() +
+		  smashableCallLrOff() - 8);
   assertx((dest & 7) == 0);
 
   return *reinterpret_cast<TCA*>(dest);
@@ -194,7 +221,7 @@ TCA smashableJmpTarget(TCA jmp) {
   Instruction* br = Instruction::Cast(jmp + 4);
   if (br->Bits(31, 10) != 0x3587C0 || br->Bits(4, 0) != 0) return nullptr;
 
-  uintptr_t dest = reinterpret_cast<uintptr_t>(jmp + 8);
+  uintptr_t dest = reinterpret_cast<uintptr_t>(jmp + smashableJmpLen()- 8);
   assertx((dest & 7) == 0);
 
   return *reinterpret_cast<TCA*>(dest);
@@ -208,14 +235,19 @@ TCA smashableJccTarget(TCA jmp) {
   Instruction* br = Instruction::Cast(jmp + 8);
   if (br->Bits(31, 10) != 0x3587C0 || br->Bits(4, 0) != 0) return nullptr;
 
-  uintptr_t dest = reinterpret_cast<uintptr_t>(jmp + 12);
+  uintptr_t dest = reinterpret_cast<uintptr_t>(jmp + smashableJccLen()- 8);
   assertx((dest & 7) == 0);
 
   return *reinterpret_cast<TCA*>(dest);
 }
 
 ConditionCode smashableJccCond(TCA inst) {
-  not_implemented();
+  using namespace vixl;
+  Instruction* b = Instruction::Cast(inst);
+  assertx((b->Bits(31, 24) == 0x54 && b->Bit(4) == 0));
+
+  Condition armcc = static_cast<Condition>(b->Bits(3, 0));
+  return convertCC(armcc);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

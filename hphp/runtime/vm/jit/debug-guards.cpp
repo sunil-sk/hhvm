@@ -57,12 +57,13 @@ void addDbgGuardImpl(SrcKey sk, SrcRec* sr, CodeBlock& cb, CGMeta& fixups) {
       offsetof(ThreadInfo, m_reqInjectionData) +
       RequestInjectionData::debuggerReadOnlyOffset();
 
-    v << ldimmq{reinterpret_cast<uintptr_t>(sk.pc()), rarg(0)};
-
     emitTLSLoad(v, tls_datum(ThreadInfo::s_threadInfo), tinfo);
+
     v << loadb{tinfo[dbgOff], attached};
     v << testbi{static_cast<int8_t>(0xffu), attached, sf};
 
+    // rarg0 could be overwritten by above instructions
+    v << ldimmq{reinterpret_cast<uintptr_t>(sk.pc()), rarg(0)};
     v << jcci{CC_NZ, sf, done, mcg->ustubs().interpHelper};
 
     v = done;
