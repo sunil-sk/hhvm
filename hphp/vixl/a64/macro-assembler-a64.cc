@@ -91,16 +91,22 @@ void MacroAssembler::LogicalMacro(const Register& rd,
   if (operand.IsImmediate()) {
     int64_t immediate = operand.immediate();
     unsigned reg_size = rd.size();
-    assert(rd.Is64Bits() || is_uint32(immediate));
 
     // If the operation is NOT, invert the operation and immediate.
     if ((op & NOT) == NOT) {
       op = static_cast<LogicalOp>(op & ~NOT);
       immediate = ~immediate;
-      if (rd.Is32Bits()) {
-        immediate &= kWRegMask;
-      }
     }
+
+    // Ignore the top 32 bits of an immediate if we're moving to a W register.
+    if (rd.Is32Bits()) {
+      // Check that the top 32 bits are consistent.
+      assert(((immediate >> kWRegSize) == 0) ||
+             ((immediate >> kWRegSize) == -1));
+      immediate &= kWRegMask;
+    }
+
+    assert(rd.Is64Bits() || is_uint32(immediate));
 
     // Special cases for all set or all clear immediates.
     if (immediate == 0) {

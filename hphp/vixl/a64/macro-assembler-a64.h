@@ -52,7 +52,7 @@ class MacroAssembler : public Assembler {
 #ifdef DEBUG
         allow_macro_instructions_(true),
 #endif
-        sp_(sp), tmp0_(ip0), tmp1_(ip1), fptmp0_(d31) {}
+        sp_(sp), tmp0_(ip0), tmp1_(ip1), fptmp0_(q31) {}
 
   // Logical macros.
   void And(const Register& rd,
@@ -632,6 +632,14 @@ class MacroAssembler : public Assembler {
   void Ldr(const Register& rt, Label* label) {
     ldr(rt, label);
   }
+  void Ldxr(const Register& rt, const MemOperand& src) {
+	  assert(allow_macro_instructions_);
+	  ldxr(rt, src);
+  }
+  void Stxr(const Register& rs, const Register& rt, const MemOperand& dst) {
+	  assert(allow_macro_instructions_);
+	  stxr(rs, rt, dst);
+  }
   void Lsl(const Register& rd, const Register& rn, unsigned shift) {
     assert(allow_macro_instructions_);
     assert(!rd.IsZero());
@@ -1019,6 +1027,8 @@ class MacroAssembler : public Assembler {
       const CPURegister& forbidden = NoCPUReg) const {
     Register candidate = forbidden.Is(Tmp0()) ? Tmp1() : Tmp0();
     assert(!candidate.Is(target));
+	// vasm lowering using Tmp1
+	assert(candidate.code() == Tmp0().code());
     return Register(candidate.code(), target.size());
   }
 

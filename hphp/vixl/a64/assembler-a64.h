@@ -103,6 +103,11 @@ class CPURegister {
     return size_ == 64;
   }
 
+  bool Is128Bits() const {
+    assert(IsValid());
+    return size_ == 128;
+  }
+
   bool IsValid() const {
     return IsValidRegister() || IsValidFPRegister();
   }
@@ -115,7 +120,7 @@ class CPURegister {
 
   bool IsValidFPRegister() const {
     return IsFPRegister() &&
-           ((size_ == kSRegSize) || (size_ == kDRegSize)) &&
+           ((size_ == kSRegSize) || (size_ == kDRegSize) || (size_ == kQRegSize)) &&
            (code_ < kNumberOfFPRegisters);
   }
 
@@ -146,6 +151,7 @@ class CPURegister {
   const Register& X() const;
   const FPRegister& S() const;
   const FPRegister& D() const;
+  const FPRegister& Q() const;
 
   inline bool IsSameSizeAndType(const CPURegister& other) const {
     return (size_ == other.size_) && (type_ == other.type_);
@@ -202,6 +208,7 @@ class FPRegister : public CPURegister {
 
   static const FPRegister& SRegFromCode(unsigned code);
   static const FPRegister& DRegFromCode(unsigned code);
+  static const FPRegister& QRegFromCode(unsigned code);
 
   // V8 compatibility.
   static const int kNumRegisters = kNumberOfFPRegisters;
@@ -210,6 +217,7 @@ class FPRegister : public CPURegister {
  private:
   static const FPRegister sregisters[];
   static const FPRegister dregisters[];
+  static const FPRegister qregisters[];
 };
 
 // No*Reg is used to indicate an unused argument, or an error case. Note that
@@ -231,7 +239,8 @@ const Register sp(kSPRegInternalCode, kXRegSize);
 
 #define DEFINE_FPREGISTERS(N)  \
 const FPRegister s##N(N, kSRegSize);  \
-const FPRegister d##N(N, kDRegSize);
+const FPRegister d##N(N, kDRegSize);  \
+const FPRegister q##N(N, kQRegSize);
 REGISTER_CODE_LIST(DEFINE_FPREGISTERS)
 #undef DEFINE_FPREGISTERS
 
@@ -610,6 +619,10 @@ class Assembler {
   // Finalize a code buffer of generated instructions. This function must be
   // called before executing or copying code from the buffer.
   void FinalizeCode();
+
+  // After generating code, flush the cache so that CPU sees
+  // new code when executing the generated text.
+  void FlushCache();
 
   // Label.
   // Bind a label to the current PC.
@@ -1049,6 +1062,12 @@ class Assembler {
   // Load integer or FP register.
   void ldr(const CPURegister& rt, const MemOperand& src);
 
+  //Load exclusive register
+  void ldxr(const Register& rt, const MemOperand& src);
+
+  // Store exclusive register.
+  void stxr(const Register& rs, const Register& rt, const MemOperand& dst);
+
   // Store integer or FP register.
   void str(const CPURegister& rt, const MemOperand& dst);
 
@@ -1100,12 +1119,6 @@ class Assembler {
 
   // Load literal to FP register.
   void ldr(const FPRegister& ft, double imm);
-
-  // Load exclusive register.
-  void ldxr(const Register& rt, const MemOperand& src);
-
-  // Store exclusive register.
-  void stxr(const Register& rs, const Register& rt, const MemOperand& dst);
 
   // Move instructions. The default shift of -1 indicates that the move
   // instruction will calculate an appropriate 16-bit immediate and left shift
@@ -1784,6 +1797,9 @@ class Assembler {
   std::list<Literal*> literals_;
   HPHP::CodeAddress next_literal_pool_check_;
   unsigned literal_pool_monitor_;
+
+  // Record start address of code generation buffer
+  HPHP::jit::TCA start_tca_;
 
   friend class BlockLiteralPoolScope;
 

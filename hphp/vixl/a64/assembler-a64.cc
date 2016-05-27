@@ -139,6 +139,13 @@ REGISTER_CODE_LIST(DREG)
 };
 #undef DREG
 
+#define QREG(n) q##n,
+const FPRegister FPRegister::qregisters[] = {
+REGISTER_CODE_LIST(QREG)
+};
+#undef QREG
+
+
 
 MemOperand Register::operator[](const ptrdiff_t offset) const {
   return MemOperand { *this, offset };
@@ -176,6 +183,10 @@ const FPRegister& FPRegister::DRegFromCode(unsigned code) {
   return dregisters[code];
 }
 
+const FPRegister& FPRegister::QRegFromCode(unsigned code) {
+  assert(code < kNumberOfFPRegisters);
+  return qregisters[code];
+}
 
 const Register& CPURegister::W() const {
   assert(IsValidRegister());
@@ -204,6 +215,11 @@ const FPRegister& CPURegister::D() const {
   return FPRegister::DRegFromCode(code_);
 }
 
+const FPRegister& CPURegister::Q() const {
+  assert(IsValidFPRegister());
+  assert(Is128Bits());
+  return FPRegister::QRegFromCode(code_);
+}
 
 // Operand.
 Operand::Operand(int64_t immediate)
@@ -348,7 +364,7 @@ bool MemOperand::IsPostIndex() const {
 
 // Assembler
 Assembler::Assembler(HPHP::CodeBlock& cb)
-    : cb_(cb), literal_pool_monitor_(0) {
+    : cb_(cb), literal_pool_monitor_(0), start_tca_(frontier()) {
   // Assert that this is an LP64 system.
   assert(sizeof(int) == sizeof(int32_t));     // NOLINT(runtime/sizeof)
   assert(sizeof(long) == sizeof(int64_t));    // NOLINT(runtime/int)
@@ -360,6 +376,7 @@ Assembler::Assembler(HPHP::CodeBlock& cb)
 
 Assembler::~Assembler() {
   FinalizeCode();
+  FlushCache();
   assert(finalized_ || (cb_.used() == 0));
   assert(literals_.empty());
 }
@@ -386,6 +403,11 @@ void Assembler::FinalizeCode() {
 #endif
 }
 
+void Assembler::FlushCache() {
+  char* start = reinterpret_cast<char *>(start_tca_);
+  char* end = reinterpret_cast<char *>(frontier());
+  __clear_cache(start, end);
+}
 
 void Assembler::bind(Label* label) {
   label->is_bound_ = true;
@@ -1474,6 +1496,16 @@ void Assembler::MoveWide(const Register& rd,
                          uint64_t imm,
                          int shift,
                          MoveWideImmediateOp mov_op) {
+
+   // Ignore the top 32 bits of an immediate if we're moving to a W register.
+   if (rd.Is32Bits()) {
+     // Check that the top 32 bits are zero (a positive 32-bit number) or top
+     // 33 bits are one (a negative 32-bit number, sign extended to 64 bits).
+     assert(((imm >> kWRegSize) == 0) ||
+           ((imm >> (kWRegSize - 1)) == 0x1ffffffff));
+     imm &= kWRegMask;
+  }
+
   if (shift >= 0) {
     // Explicit shift specified.
     assert((shift == 0) || (shift == 16) || (shift == 32) || (shift == 48));
@@ -1810,7 +1842,6 @@ void Assembler::LoadStore(const CPURegister& rt,
   }
 }
 
-
 bool Assembler::IsImmLSUnscaled(ptrdiff_t offset) {
   return is_int9(offset);
 }
@@ -1995,7 +2026,7 @@ LoadStoreOp Assembler::LoadOpFor(const CPURegister& rt) {
     return rt.Is64Bits() ? LDR_x : LDR_w;
   } else {
     assert(rt.IsFPRegister());
-    return rt.Is64Bits() ? LDR_d : LDR_s;
+    return rt.Is64Bits() ? LDR_d : rt.Is32Bits() ? LDR_s : LDR_q;
   }
 }
 
@@ -2019,7 +2050,7 @@ LoadStoreOp Assembler::StoreOpFor(const CPURegister& rt) {
     return rt.Is64Bits() ? STR_x : STR_w;
   } else {
     assert(rt.IsFPRegister());
-    return rt.Is64Bits() ? STR_d : STR_s;
+    return rt.Is64Bits() ? STR_d : rt.Is32Bits() ? STR_s : STR_q;
   }
 }
 
