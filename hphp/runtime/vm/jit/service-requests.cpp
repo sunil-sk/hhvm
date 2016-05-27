@@ -123,6 +123,9 @@ void emit_svcreq(CodeBlock& cb,
     }
     v << copy{v.cns(sr), r_svcreq_req()};
 
+    if(sr == REQ_POST_INTERP_RET)
+      live_out |=  (r_svcreq_arg(0) |  r_svcreq_arg(1));
+
     live_out |= r_svcreq_stub();
     live_out |= r_svcreq_req();
 
@@ -214,6 +217,15 @@ namespace x64 {
   static constexpr int kLeaVmSpLen = 7;
 }
 
+namespace a64 {
+  // As the lea instruction requires ld-imm and read from memory,
+  // ld-imm can be 4 instruction depending on the imm len.
+  // Single instruction is 4 bytes, and total instr is 5.
+  static constexpr int kMovLen = 20;
+  // Extra space rvmSp() loading in the handler
+  static constexpr int kExtra = 40;
+}
+
 size_t stub_size() {
   // The extra args are the request type and the stub address.
   constexpr auto kTotalArgs = kMaxArgs + 2;
@@ -222,7 +234,7 @@ size_t stub_size() {
     case Arch::X64:
       return kTotalArgs * x64::kMovLen + x64::kLeaVmSpLen;
     case Arch::ARM:
-      not_implemented();
+      return kTotalArgs * a64::kMovLen + a64::kExtra;
     case Arch::PPC64:
       not_implemented();
   }
@@ -246,7 +258,22 @@ FPInvOffset extract_spoff(TCA stub) {
       }
 
     case Arch::ARM:
-      not_implemented();
+      {
+        vixl::Instruction *instr = vixl::Instruction::Cast(stub);
+        // The immediate offset will be always positive. But the opcode
+        // can be ADD or SUB depending on the value. As current SP is always
+        // lower from FP in the stack frame, we can always return a
+        // positive value
+        unsigned offBytes;
+        // if lea is not broken into ADD it should start with ImmMovWide.
+        if(!instr->IsAddSubImmediate()) {
+          offBytes = instr->ImmMoveWide() << (16 * instr->ShiftMoveWide());
+        } else {
+          offBytes = instr->ImmAddSub() << (12 * instr->ShiftAddSub());
+        }
+        always_assert((offBytes % sizeof(Cell)) == 0);
+        return FPInvOffset{(int32_t)(offBytes / unsigned{sizeof(Cell)})};
+      }
 
     case Arch::PPC64:
       not_implemented();

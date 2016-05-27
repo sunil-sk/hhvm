@@ -121,23 +121,51 @@ Vinstr simplecall(Vout& v, F helper, Vreg arg, Vreg d) {
 ///////////////////////////////////////////////////////////////////////////////
 
 TCA emitFunctionEnterHelper(CodeBlock& cb, UniqueStubs& us) {
-  if (arch() != Arch::X64) not_implemented();
-  return x64::emitFunctionEnterHelper(cb, us);
+  switch (arch()) {
+    case Arch::X64:
+      return x64::emitFunctionEnterHelper(cb, us);
+    case Arch::ARM:
+      return arm::emitFunctionEnterHelper(cb, us);
+    default:
+      not_implemented();
+      break;
+  }
 }
 
 TCA emitFreeLocalsHelpers(CodeBlock& cb, UniqueStubs& us) {
-  if (arch() != Arch::X64) not_implemented();
-  return x64::emitFreeLocalsHelpers(cb, us);
+  switch (arch()) {
+    case Arch::X64:
+      return x64::emitFreeLocalsHelpers(cb, us);
+    case Arch::ARM:
+      return arm::emitFreeLocalsHelpers(cb, us);
+    default:
+      not_implemented();
+      break;
+  }
 }
 
 TCA emitCallToExit(CodeBlock& cb, const UniqueStubs& us) {
-  if (arch() != Arch::X64) not_implemented();
-  return x64::emitCallToExit(cb, us);
+  switch (arch()) {
+    case Arch::X64:
+      return x64::emitCallToExit(cb, us);
+    case Arch::ARM:
+      return arm::emitCallToExit(cb, us);
+    default:
+      not_implemented();
+      break;
+  }
 }
 
 TCA emitEndCatchHelper(CodeBlock& cb, UniqueStubs& us) {
-  if (arch() != Arch::X64) not_implemented();
-  return x64::emitEndCatchHelper(cb, us);
+  switch (arch()) {
+    case Arch::X64:
+      return x64::emitEndCatchHelper(cb, us);
+    case Arch::ARM:
+      return arm::emitEndCatchHelper(cb, us);
+    default:
+      not_implemented();
+      break;
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -847,11 +875,15 @@ void emitInterpOneCFHelpers(CodeBlock& cb, UniqueStubs& us,
 TCA emitDecRefGeneric(CodeBlock& cb) {
   CGMeta meta;
 
-  auto const start = vwrap(cb, meta, [] (Vout& v) {
+#if defined(__aarch64__)
+  auto const destr = arm::emitCallDestrArm(cb, rarg(1));
+#endif
+  auto const start = vwrap(cb, meta, [&] (Vout& v) {
     v << stublogue{};
 
     auto const rdata = rarg(0);
     auto const rtype = rarg(1);
+    int spoff = 1;
 
     auto const destroy = [&] (Vout& v) {
       // decRefGeneric is called via callfaststub, whose ABI claims that all
@@ -865,17 +897,25 @@ TCA emitDecRefGeneric(CodeBlock& cb) {
       // the default vwrap() ABI.  Just use the argument registers instead.
       assertx(callerSaved.contains(rdata));
       assertx(callerSaved.contains(rtype));
-
+#if defined(__aarch64__)
+      v << call{destr};
+      // 2 dwords for the call to this function.
+      // Last calls sp-reduction(16 bytes) is taken care by
+      // makeIndirect function.
+      // LinkRegister is saved in 8 byte offset in the 16 byte frame
+      spoff = VASM_ARM_CALL_SP_OFF/8 + 1;
+#else
       v << movzbq{rtype, rtype};
       v << shrli{kShiftDataTypeToDestrIndex, rtype, rtype, v.makeReg()};
 
       auto const dtor_table =
         safe_cast<int>(reinterpret_cast<intptr_t>(g_destructors));
       v << callm{baseless(rtype * 8 + dtor_table), arg_regs(1)};
+#endif
 
       // The stub frame's saved RIP is at %rsp[8] before we saved the
       // caller-saved registers.
-      v << syncpoint{makeIndirectFixup(prs.dwordsPushed() + 1)};
+      v << syncpoint{makeIndirectFixup(prs.dwordsPushed() + spoff)};
     };
 
     emitDecRefWork(v, v, rdata, destroy, false);
@@ -893,7 +933,9 @@ TCA emitEnterTCHelper(CodeBlock& cb, UniqueStubs& us) {
     // Eagerly save VM regs, realign the native stack, then perform a native
     // return.
     storeVMRegs(v);
+#ifndef __aarch64__
     v << lea{rsp()[8], rsp()};
+#endif
     v << stubret{RegSet(), true};
   });
 
@@ -921,16 +963,24 @@ TCA emitEnterTCHelper(CodeBlock& cb, UniqueStubs& us) {
     v << load{rsp()[0x30], reg::r11};
 #endif
 
+#ifdef __aarch64__
+    auto tmp = v.makeReg();
+    v << copy{rsp(), tmp};
+    v << store{tmp, firstAR[AROFF(m_sfp)]};
+#else
     // Set up linkage with the top VM frame in this nesting.
     v << store{rsp(), firstAR[AROFF(m_sfp)]};
+#endif
 
     // Set up the VM registers.
     v << copy{fp, rvmfp()};
     v << copy{sp, rvmsp()};
     v << copy{tl, rvmtl()};
 
+#ifndef __aarch64__
     // Unalign the native stack.
     v << lea{rsp()[-8], rsp()};
+#endif
 
     // Check if `calleeAR' was set.
     auto const sf = v.makeReg();
